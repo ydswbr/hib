@@ -1,89 +1,45 @@
-name: RDP
+name: Ubuntu Xtream VPS
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp-stream:
-    runs-on: windows-latest
+  build:
+    runs-on: ubuntu-20.04
     timeout-minutes: 360
-    
+
     steps:
-      - name: Configure Core RDP & Audio Settings
+      - name: 1. Install Necessary Dependencies
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          Set-Service -Name Audiosrv -StartupType Automatic
-          Start-Service -Name Audiosrv
-          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fDisableAudioCapture" -Value 0 -Force
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name "VisualFXSetting" -Value 2 -Force
-
-      - name: Install Streaming Tools (OBS Studio)
+          sudo apt-get update
+          # تثبيت الأدوات الأساسية التي تحتاجها لوحة اكستريم
+          sudo apt-get install -y libxslt1-dev libcurl4-openssl-dev libmariadb-client-lgpl-dev libgeoip-dev python-is-python3 wget curl
+          
+      - name: 2. Install Tailscale
         run: |
-          choco install obs-studio -y --no-progress
-          choco install vlc -y --no-progress
+          curl -fsSL https://tailscale.com/install.sh | sh
 
-      - name: Create RDP User with Secure Password
+      - name: 3. Connect to Tailscale
         run: |
-          Add-Type -AssemblyName System.Security
-          $charSet = @{
-              Upper   = [char[]](65..90)
-              Lower   = [char[]](97..122)
-              Number  = [char[]](48..57)
-              Special = ([char[]](33..47) + [char[]](58..64))
-          }
-          $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 2
-          $password = -join ($rawPassword | Sort-Object { Get-Random })
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "Streamer" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "Streamer"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Streamer"
-          echo "RDP_USER=Streamer" >> $env:GITHUB_ENV
-          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+          # استخدم مفتاح التوثيق الخاص بك هنا
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=xtream-server
 
-      - name: Install Tailscale
+      - name: 4. Setup Root Password
         run: |
-          # FIX: Using specific version URL to prevent 404 error
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
+          # تعيين كلمة مرور للـ Root لتسهيل عملية التثبيت
+          echo "root:Xtream2026" | sudo chpasswd
+          # تفعيل دخول الجذور عبر SSH إذا كنت ستحتاجه
+          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo service ssh restart
 
-      - name: Establish Tailscale Connection
+      - name: 5. Server Info
         run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-streamer-$env:GITHUB_RUN_ID
-          $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
-              $retries++
-          }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          echo "=========================================="
+          echo "SERVER IS READY FOR XTREAM INSTALLATION"
+          echo "IP Address: $(tailscale ip -4)"
+          echo "User: root"
+          echo "Password: Xtream2026"
+          echo "=========================================="
 
-      - name: Connection Details
-        run: |
-          Write-Host "========================================="
-          Write-Host "     RDP STREAMING SERVER READY"
-          Write-Host "========================================="
-          Write-Host "IP Address (Tailscale): $env:TAILSCALE_IP"
-          Write-Host "Username: $env:RDP_USER"
-          Write-Host "Password: $env:RDP_PASS"
-          Write-Host "========================================="
-
-      - name: Keep Alive
-        run: |
-          while ($true) {
-              $w = New-Object -ComObject WScript.Shell
-              $w.SendKeys("{SCROLLLOCK}")
-              Start-Sleep -Seconds 300
-          }
-
+      - name: 6. Keep Alive
+        run: sleep 6h
