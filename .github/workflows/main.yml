@@ -11,29 +11,19 @@ jobs:
     steps:
       - name: Configure Core RDP & Audio Settings
         run: |
-          # 1. Enable Remote Desktop & Disable NLA
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-
-          # 2. Enable Audio Service (Critical for Streaming)
           Set-Service -Name Audiosrv -StartupType Automatic
           Start-Service -Name Audiosrv
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fDisableAudioCapture" -Value 0 -Force
-
-          # 3. Firewall Rules
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
           netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-
-          # 4. Disable visual effects for better performance
           Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name "VisualFXSetting" -Value 2 -Force
 
       - name: Install Streaming Tools (OBS Studio)
         run: |
-          # Installing OBS Studio via Chocolatey to save time
           choco install obs-studio -y --no-progress
-          
-          # Optional: Install VLC for media playback testing
           choco install vlc -y --no-progress
 
       - name: Create RDP User with Secure Password
@@ -51,20 +41,17 @@ jobs:
           $rawPassword += $charSet.Number | Get-Random -Count 4
           $rawPassword += $charSet.Special | Get-Random -Count 2
           $password = -join ($rawPassword | Sort-Object { Get-Random })
-          
-          # Force password to be secure string
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "Streamer" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "Streamer"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Streamer"
-          
-          # Save credentials to ENV for later display
           echo "RDP_USER=Streamer" >> $env:GITHUB_ENV
           echo "RDP_PASS=$password" >> $env:GITHUB_ENV
 
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
+          # FIX: Using specific version URL to prevent 404 error
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
           Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
@@ -73,7 +60,6 @@ jobs:
       - name: Establish Tailscale Connection
         run: |
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-streamer-$env:GITHUB_RUN_ID
-          
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 10) {
@@ -92,12 +78,10 @@ jobs:
           Write-Host "Username: $env:RDP_USER"
           Write-Host "Password: $env:RDP_PASS"
           Write-Host "========================================="
-          Write-Host "NOTE: Open OBS Studio from Desktop once connected."
 
       - name: Keep Alive
         run: |
           while ($true) {
-              # Prevent idle timeout by simulating activity roughly every minute
               $w = New-Object -ComObject WScript.Shell
               $w.SendKeys("{SCROLLLOCK}")
               Start-Sleep -Seconds 300
