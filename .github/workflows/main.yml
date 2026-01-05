@@ -1,4 +1,4 @@
-name: RDP
+U89name: RDP
 
 on:
 workflow_dispatch:
@@ -117,5 +117,3 @@ steps:
           Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"  
           Start-Sleep -Seconds 300  
       }
-
-هل الكود كفيل انو يطلع إمكانيات rdp تعبانة
